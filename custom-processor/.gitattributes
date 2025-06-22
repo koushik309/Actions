@@ -1,0 +1,4 @@
+cd Workflow
+echo "* text=auto eol=lf" > .gitattributes
+echo "*.sh text eol=lf" >> .gitattributes
+echo "*.py text eol=lf" >> .gitattributes

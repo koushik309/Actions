@@ -1,20 +1,11 @@
-# Actions/custom-processor/action.yml
-name: Custom Processor
-description: Coordinates two jobs via workflows
+name: 'Orchestrate Jobs'
+description: 'Runs two jobs in Workflow repository'
 inputs:
-  message:
-    description: 'Initial message'
+  input_data:
+    description: 'Initial input data'
     required: true
 runs:
-  using: composite
-  steps:
-    - run: echo "Starting workflows with message: ${{ inputs.message }}"
-    - id: job1
-      uses: koushik309/Workflows/.github/workflows/workflow-job1.yml@main
-      with:
-        input_value: ${{ inputs.message }}
-    - run: echo "Job 1 result: ${{ steps.job1.outputs.result }}"
-    - id: job2
-      uses: koushik309/Workflows/.github/workflows/workflow-job2.yml@main
-      with:
-        job1_output: ${{ steps.job1.outputs.result }}
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - "${{ inputs.input_data }}"
