@@ -7,6 +7,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Echo output  # Optional but recommended
+    - name: Echo output
       run: echo "Message: ${{ inputs.message }}"
       shell: bash
