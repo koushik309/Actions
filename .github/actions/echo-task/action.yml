@@ -2,8 +2,8 @@ name: Echo Task
 description: Echoes an input message
 inputs:
   message:
-    required: true
     description: 'Message to echo'
+    required: true
 runs:
   using: "composite"
   steps:
