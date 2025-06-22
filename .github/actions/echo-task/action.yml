@@ -5,6 +5,6 @@ inputs:
     description: 'Message to echo'
     required: true
 runs:
-  using: "composite"
+  using: composite
   steps:
     - run: echo "Message: ${{ inputs.message }}"
