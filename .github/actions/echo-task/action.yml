@@ -1,0 +1,10 @@
+name: Echo Task
+description: Echoes an input message
+inputs:
+  message:
+    required: true
+    description: 'Message to echo'
+runs:
+  using: "composite"
+  steps:
+    - run: echo "Message: ${{ inputs.message }}"
