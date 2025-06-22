@@ -4,9 +4,9 @@ inputs:
   message:
     description: 'Message to echo'
     required: true
+    default: ''
 runs:
   using: composite
   steps:
-    - name: Echo output
+    - shell: bash
       run: echo "Message: ${{ inputs.message }}"
-      shell: bash
