@@ -10,12 +10,28 @@ run_workflow() {
   local input_name=$2
   local input_value=$3
   
+  # Get workflow ID
+  echo "Getting ID for workflow: $workflow_name" >&2
+  local workflow_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    "https://api.github.com/repos/koushik309/Workflow/actions/workflows")
+  
+  local workflow_id=$(echo "$workflow_info" | jq -r --arg wf "$workflow_name" \
+    '.workflows[] | select(.name == $wf) | .id')
+  
+  if [ -z "$workflow_id" ] || [ "$workflow_id" == "null" ]; then
+    echo "ERROR: Workflow '$workflow_name' not found" >&2
+    echo "Available workflows:" >&2
+    echo "$workflow_info" | jq '.workflows[] | {id, name, path}' >&2
+    return 1
+  fi
+  echo "Found workflow ID: $workflow_id" >&2
+  
   # Trigger workflow
-  echo "Triggering $workflow_name with $input_name=$input_value" >&2
+  echo "Triggering $workflow_name (ID: $workflow_id) with $input_name=$input_value" >&2
   response=$(curl -s -w "%{http_code}" -X POST \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
-    "https://api.github.com/repos/koushik309/Workflow/actions/workflows/$workflow_name/dispatches" \
+    "https://api.github.com/repos/koushik309/Workflow/actions/workflows/$workflow_id/dispatches" \
     -d "{\"ref\":\"main\", \"inputs\":{\"$input_name\":\"$input_value\"}}")
   
   http_code=${response: -3}
@@ -32,9 +48,9 @@ run_workflow() {
   sleep 20
   
   # Get latest run ID
-  run_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-    "https://api.github.com/repos/koushik309/Workflow/actions/runs?workflow=$workflow_name&event=workflow_dispatch")
-  run_id=$(echo "$run_info" | jq -r '.workflow_runs[0].id')
+  local run_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    "https://api.github.com/repos/koushik309/Workflow/actions/runs?workflow=$workflow_id&event=workflow_dispatch")
+  local run_id=$(echo "$run_info" | jq -r '.workflow_runs[0].id')
   
   if [ -z "$run_id" ] || [ "$run_id" == "null" ]; then
     echo "ERROR: Failed to get run ID for workflow $workflow_name" >&2
@@ -47,9 +63,9 @@ run_workflow() {
   local timeout=1800
   local start_time=$(date +%s)
   while true; do
-    status_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    local status_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
       "https://api.github.com/repos/koushik309/Workflow/actions/runs/$run_id")
-    status=$(echo "$status_info" | jq -r '.status')
+    local status=$(echo "$status_info" | jq -r '.status')
     [ -z "$status" ] && status="unknown"
     
     echo "Current status: $status" >&2
@@ -65,9 +81,9 @@ run_workflow() {
   done
   
   # Get artifacts
-  artifacts_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  local artifacts_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "https://api.github.com/repos/koushik309/Workflow/actions/runs/$run_id/artifacts")
-  download_url=$(echo "$artifacts_info" | jq -r '.artifacts[0].archive_download_url')
+  local download_url=$(echo "$artifacts_info" | jq -r '.artifacts[0].archive_download_url')
   
   if [ -z "$download_url" ] || [ "$download_url" == "null" ]; then
     echo "ERROR: Failed to get artifact download URL" >&2
@@ -101,9 +117,9 @@ echo "Authenticated as: $USER_LOGIN" >&2
 
 # Run job1 and capture output
 echo "Starting Job1..." >&2
-JOB1_OUTPUT=$(run_workflow "job1.yml" "input_data" "$INPUT_DATA")
+JOB1_OUTPUT=$(run_workflow "Execute Job1" "input_data" "$INPUT_DATA")
 echo "Job1 output: $JOB1_OUTPUT" >&2
 
 # Run job2 with job1's output
 echo "Starting Job2..." >&2
-run_workflow "job2.yml" "job1_output" "$JOB1_OUTPUT"
+run_workflow "Execute Job2" "job1_output" "$JOB1_OUTPUT"
