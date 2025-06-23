@@ -60,7 +60,8 @@ run_workflow() {
     return 1
   fi
   
-  # NEW: Wait for completion with status and conclusion checks
+  echo "Workflow run URL: https://github.com/koushik309/Workflows/actions/runs/$run_id" >&2
+  
   local timeout=1800
   local start_time=$(date +%s)
   while true; do
@@ -87,17 +88,29 @@ run_workflow() {
     sleep 10
   done
   
-  # NEW: Verify artifact exists
-  local artifacts_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-    "https://api.github.com/repos/koushik309/Workflows/actions/runs/$run_id/artifacts")
+  # Get artifacts with retries
+  local retries=3
+  local artifacts_info=""
+  for i in $(seq 1 $retries); do
+    echo "Fetching artifacts (attempt $i/$retries)..." >&2
+    artifacts_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+      "https://api.github.com/repos/koushik309/Workflows/actions/runs/$run_id/artifacts")
+    
+    if [ $(echo "$artifacts_info" | jq '.total_count') -gt 0 ]; then
+      break
+    fi
+    sleep 5
+  done
   
   if [ $(echo "$artifacts_info" | jq '.total_count') -eq 0 ]; then
-    echo "ERROR: No artifacts found" >&2
+    echo "ERROR: No artifacts found after $retries attempts" >&2
+    echo "Artifact API response: $artifacts_info" >&2
     return 1
   fi
   
   local download_url=$(echo "$artifacts_info" | jq -r '.artifacts[0].archive_download_url')
   
+  echo "Downloading artifact from $download_url" >&2
   curl -s -L -H "Authorization: token $GITHUB_TOKEN" -o artifact.zip "$download_url"
   unzip -p artifact.zip output.txt
   rm artifact.zip
@@ -113,4 +126,7 @@ fi
 JOB1_OUTPUT=$(run_workflow "job1.yml" "input_data" "$INPUT_DATA")
 
 # Run job2 with job1's output
-run_workflow "job2.yml" "job1_output" "$JOB1_OUTPUT"
+JOB2_OUTPUT=$(run_workflow "job2.yml" "job1_output" "$JOB1_OUTPUT")
+
+# Final output
+echo "Final result: $JOB2_OUTPUT"
