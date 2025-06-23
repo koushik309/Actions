@@ -12,31 +12,48 @@ run_workflow() {
   
   # Trigger workflow
   echo "Triggering $workflow_name with $input_name=$input_value" >&2
-  curl -s -X POST \
+  response=$(curl -s -w "%{http_code}" -X POST \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
     "https://api.github.com/repos/koushik309/Workflow/actions/workflows/$workflow_name/dispatches" \
-    -d "{\"ref\":\"main\", \"inputs\":{\"$input_name\":\"$input_value\"}}"
+    -d "{\"ref\":\"main\", \"inputs\":{\"$input_name\":\"$input_value\"}}")
   
-  # Wait 10 seconds for workflow to start
-  sleep 10
+  http_code=${response: -3}
+  body=${response%$http_code}
+  
+  # Check for successful trigger
+  if [ "$http_code" != "204" ]; then
+    echo "ERROR: Failed to trigger workflow $workflow_name. HTTP $http_code: $body" >&2
+    return 1
+  fi
+  echo "Workflow triggered successfully" >&2
+  
+  # Wait 20 seconds for workflow to start
+  sleep 20
   
   # Get latest run ID
-  local run_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-    "https://api.github.com/repos/koushik309/Workflow/actions/runs?workflow=$workflow_name&status=in_progress")
-  local run_id=$(echo "$run_info" | jq -r '.workflow_runs[0].id')
+  run_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    "https://api.github.com/repos/koushik309/Workflow/actions/runs?workflow=$workflow_name&event=workflow_dispatch")
+  run_id=$(echo "$run_info" | jq -r '.workflow_runs[0].id')
+  
+  if [ -z "$run_id" ] || [ "$run_id" == "null" ]; then
+    echo "ERROR: Failed to get run ID for workflow $workflow_name" >&2
+    echo "API Response: $run_info" >&2
+    return 1
+  fi
   echo "Triggered run ID: $run_id" >&2
   
-  # Wait for completion with timeout (max 10 minutes)
-  local timeout=600
+  # Wait for completion with timeout (max 30 minutes)
+  local timeout=1800
   local start_time=$(date +%s)
   while true; do
-    local status_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    status_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
       "https://api.github.com/repos/koushik309/Workflow/actions/runs/$run_id")
-    local status=$(echo "$status_info" | jq -r '.status')
-    echo "Current status: $status" >&2
+    status=$(echo "$status_info" | jq -r '.status')
+    [ -z "$status" ] && status="unknown"
     
-    [ "$status" = "completed" ] && break
+    echo "Current status: $status" >&2
+    [[ "$status" == "completed" ]] && break
     
     local current_time=$(date +%s)
     local elapsed=$((current_time - start_time))
@@ -44,13 +61,18 @@ run_workflow() {
       echo "Timeout waiting for workflow $workflow_name to complete" >&2
       return 1
     fi
-    sleep 15
+    sleep 30
   done
   
   # Get artifacts
-  local artifacts_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  artifacts_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "https://api.github.com/repos/koushik309/Workflow/actions/runs/$run_id/artifacts")
-  local download_url=$(echo "$artifacts_info" | jq -r '.artifacts[0].archive_download_url')
+  download_url=$(echo "$artifacts_info" | jq -r '.artifacts[0].archive_download_url')
+  
+  if [ -z "$download_url" ] || [ "$download_url" == "null" ]; then
+    echo "ERROR: Failed to get artifact download URL" >&2
+    return 1
+  fi
   
   echo "Downloading artifact from $download_url" >&2
   curl -s -L -H "Authorization: token $GITHUB_TOKEN" -o artifact.zip "$download_url"
@@ -64,6 +86,18 @@ if [ -z "$GITHUB_TOKEN" ]; then
   echo "ERROR: GITHUB_TOKEN is not set" >&2
   exit 1
 fi
+
+# Verify token permissions
+RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user)
+USER_LOGIN=$(echo "$RESPONSE" | jq -r '.login')
+
+if [ -z "$USER_LOGIN" ] || [ "$USER_LOGIN" == "null" ]; then
+  echo "ERROR: Invalid token - cannot authenticate" >&2
+  echo "API Response: $RESPONSE" >&2
+  exit 1
+fi
+
+echo "Authenticated as: $USER_LOGIN" >&2
 
 # Run job1 and capture output
 echo "Starting Job1..." >&2
