@@ -10,15 +10,34 @@ run_workflow() {
   local input_name=$2
   local input_value=$3
   
-  # Get workflow ID
+  # Get workflow ID - handle empty responses
   echo "Getting ID for workflow: $workflow_name" >&2
-  local workflow_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  local workflow_info
+  workflow_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "https://api.github.com/repos/koushik309/Workflow/actions/workflows")
   
-  local workflow_id=$(echo "$workflow_info" | jq -r --arg wf "$workflow_name" \
-    '.workflows[] | select(.name == $wf) | .id')
+  # Debug: Show raw API response
+  echo "Workflow API response: $workflow_info" >&2
   
-  if [ -z "$workflow_id" ] || [ "$workflow_id" == "null" ]; then
+  # Handle empty or invalid response
+  if [ -z "$workflow_info" ] || [ "$workflow_info" = "null" ]; then
+    echo "ERROR: Empty response from workflows API" >&2
+    return 1
+  fi
+  
+  # Extract workflow ID using path instead of name
+  local workflow_id
+  workflow_id=$(echo "$workflow_info" | jq -r \
+    --arg path ".github/workflows/$workflow_name" \
+    '.workflows[] | select(.path == $path) | .id')
+  
+  # Alternative: Use filename matching
+  if [ -z "$workflow_id" ] || [ "$workflow_id" = "null" ]; then
+    workflow_id=$(echo "$workflow_info" | jq -r \
+      '.workflows[] | select(.path | endswith("$workflow_name")) | .id')
+  fi
+  
+  if [ -z "$workflow_id" ] || [ "$workflow_id" = "null" ]; then
     echo "ERROR: Workflow '$workflow_name' not found" >&2
     echo "Available workflows:" >&2
     echo "$workflow_info" | jq '.workflows[] | {id, name, path}' >&2
@@ -48,30 +67,37 @@ run_workflow() {
   sleep 20
   
   # Get latest run ID
-  local run_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  local run_info
+  run_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "https://api.github.com/repos/koushik309/Workflow/actions/runs?workflow=$workflow_id&event=workflow_dispatch")
-  local run_id=$(echo "$run_info" | jq -r '.workflow_runs[0].id')
+  echo "Run info: $run_info" >&2
   
-  if [ -z "$run_id" ] || [ "$run_id" == "null" ]; then
+  local run_id
+  run_id=$(echo "$run_info" | jq -r '.workflow_runs[0].id')
+  
+  if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
     echo "ERROR: Failed to get run ID for workflow $workflow_name" >&2
-    echo "API Response: $run_info" >&2
     return 1
   fi
-  echo "Triggered run ID: $run_id" >&2
+  echo "Triggered run ID: $work_id" >&2
   
   # Wait for completion with timeout (max 30 minutes)
   local timeout=1800
-  local start_time=$(date +%s)
+  local start_time
+  start_time=$(date +%s)
   while true; do
-    local status_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    local status_info
+    status_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
       "https://api.github.com/repos/koushik309/Workflow/actions/runs/$run_id")
-    local status=$(echo "$status_info" | jq -r '.status')
+    local status
+    status=$(echo "$status_info" | jq -r '.status')
     [ -z "$status" ] && status="unknown"
     
     echo "Current status: $status" >&2
-    [[ "$status" == "completed" ]] && break
+    [ "$status" = "completed" ] && break
     
-    local current_time=$(date +%s)
+    local current_time
+    current_time=$(date +%s)
     local elapsed=$((current_time - start_time))
     if [ $elapsed -ge $timeout ]; then
       echo "Timeout waiting for workflow $workflow_name to complete" >&2
@@ -81,11 +107,13 @@ run_workflow() {
   done
   
   # Get artifacts
-  local artifacts_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  local artifacts_info
+  artifacts_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "https://api.github.com/repos/koushik309/Workflow/actions/runs/$run_id/artifacts")
-  local download_url=$(echo "$artifacts_info" | jq -r '.artifacts[0].archive_download_url')
+  local download_url
+  download_url=$(echo "$artifacts_info" | jq -r '.artifacts[0].archive_download_url')
   
-  if [ -z "$download_url" ] || [ "$download_url" == "null" ]; then
+  if [ -z "$download_url" ] || [ "$download_url" = "null" ]; then
     echo "ERROR: Failed to get artifact download URL" >&2
     return 1
   fi
@@ -107,7 +135,7 @@ fi
 RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user)
 USER_LOGIN=$(echo "$RESPONSE" | jq -r '.login')
 
-if [ -z "$USER_LOGIN" ] || [ "$USER_LOGIN" == "null" ]; then
+if [ -z "$USER_LOGIN" ] || [ "$USER_LOGIN" = "null" ]; then
   echo "ERROR: Invalid token - cannot authenticate" >&2
   echo "API Response: $RESPONSE" >&2
   exit 1
@@ -117,9 +145,9 @@ echo "Authenticated as: $USER_LOGIN" >&2
 
 # Run job1 and capture output
 echo "Starting Job1..." >&2
-JOB1_OUTPUT=$(run_workflow "Execute Job1" "input_data" "$INPUT_DATA")
+JOB1_OUTPUT=$(run_workflow "job1.yml" "input_data" "$INPUT_DATA")
 echo "Job1 output: $JOB1_OUTPUT" >&2
 
 # Run job2 with job1's output
 echo "Starting Job2..." >&2
-run_workflow "Execute Job2" "job1_output" "$JOB1_OUTPUT"
+run_workflow "job2.yml" "job1_output" "$JOB1_OUTPUT"
